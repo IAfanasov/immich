@@ -5,6 +5,7 @@ import _ from 'lodash';
 import { Duration } from 'luxon';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Writable } from 'node:stream';
 import sharp from 'sharp';
 import { ORIENTATION_TO_SHARP_ROTATION } from 'src/constants';
@@ -370,6 +371,33 @@ export class MediaRepository {
         });
       });
     });
+  }
+
+  /**
+   * Samples frames from a video at a regular interval and writes them as JPEG files.
+   *
+   * @param videoPath absolute path to the source video
+   * @param outputDir directory to write the extracted JPEGs into; must exist before calling
+   * @param frameInterval seconds between consecutive sampled frames (passed as `fps=1/N` to ffmpeg)
+   * @param maxFrames maximum number of frames to extract, regardless of video length
+   * @returns sorted list of absolute paths to the extracted JPEG files
+   */
+  async extractVideoFrames(videoPath: string, outputDir: string, frameInterval: number, maxFrames: number): Promise<string[]> {
+    const outputPattern = path.join(outputDir, 'frame_%04d.jpg');
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(videoPath)
+        .outputOptions([`-vf fps=1/${frameInterval}`, `-frames:v ${maxFrames}`, '-q:v 3'])
+        .output(outputPattern)
+        .on('error', (error: Error, _stdout: string, stderr: string) => reject(new Error(stderr || error.message)))
+        .on('end', () => resolve())
+        .run();
+    });
+
+    const files = await fs.readdir(outputDir);
+    return files
+      .filter((f) => f.startsWith('frame_') && f.endsWith('.jpg'))
+      .sort()
+      .map((f) => path.join(outputDir, f));
   }
 
   transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
