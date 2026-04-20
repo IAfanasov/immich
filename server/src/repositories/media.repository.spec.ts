@@ -693,8 +693,16 @@ describe(MediaRepository.name, () => {
       return chain;
     };
 
+    const mockProbe = (duration: number) => {
+      vi.mocked(ffmpeg).ffprobe.mockImplementation((_path, _opts, cb: any) =>
+        cb(null, { format: { duration }, streams: [] }),
+      );
+    };
+
     beforeEach(() => {
       vi.mocked(ffmpeg).mockReturnValue(buildMockChain() as any);
+      // Default: short video where naive count (50s / 2s = 25) does not exceed maxFrames (50)
+      mockProbe(50);
     });
 
     afterEach(() => {
@@ -743,7 +751,7 @@ describe(MediaRepository.name, () => {
       await expect(sut.extractVideoFrames('/video.mp4', '/tmp/frames', 2, 50)).rejects.toThrow('invalid video stream');
     });
 
-    it('should pass frameInterval and maxFrames through to ffmpeg', async () => {
+    it('should pass frameInterval and maxFrames through to ffmpeg when under the cap', async () => {
       const mockChain = buildMockChain();
       vi.mocked(ffmpeg).mockReturnValue(mockChain as any);
       vi.spyOn(fs, 'readdir').mockResolvedValue([] as any);
@@ -751,6 +759,43 @@ describe(MediaRepository.name, () => {
       await sut.extractVideoFrames('/video.mp4', '/tmp/frames', 5, 100);
 
       expect(mockChain.outputOptions).toHaveBeenCalledWith(['-vf fps=1/5', '-frames:v 100', '-q:v 3']);
+    });
+
+    it('should widen the interval when naive frame count exceeds maxFrames', async () => {
+      // 180s video at 2s interval = 90 frames > maxFrames 50 → floor(180/50) = 3s
+      mockProbe(180);
+      const mockChain = buildMockChain();
+      vi.mocked(ffmpeg).mockReturnValue(mockChain as any);
+      vi.spyOn(fs, 'readdir').mockResolvedValue([] as any);
+
+      await sut.extractVideoFrames('/video.mp4', '/tmp/frames', 2, 50);
+
+      expect(mockChain.outputOptions).toHaveBeenCalledWith(['-vf fps=1/3', '-frames:v 50', '-q:v 3']);
+    });
+
+    it('should use interval of at least 1s when duration is very short', async () => {
+      // 3s video, maxFrames 50 → floor(3/50) = 0, clamped to 1
+      mockProbe(3);
+      const mockChain = buildMockChain();
+      vi.mocked(ffmpeg).mockReturnValue(mockChain as any);
+      vi.spyOn(fs, 'readdir').mockResolvedValue([] as any);
+
+      await sut.extractVideoFrames('/video.mp4', '/tmp/frames', 2, 50);
+
+      // naive count = floor(3/2) = 1, which is <= 50, so no adjustment needed
+      expect(mockChain.outputOptions).toHaveBeenCalledWith(['-vf fps=1/2', '-frames:v 50', '-q:v 3']);
+    });
+
+    it('should clamp effective interval to 1 when duration/maxFrames rounds to zero', async () => {
+      // 10s video, maxFrames 50 → naive count floor(10/2)=5 <= 50, no adjustment
+      // But if we contrive adjustment: 1s video, interval=1, maxFrames=50 → floor(1/50)=0 → clamp to 1
+      mockProbe(1);
+      const mockChain = buildMockChain();
+      vi.mocked(ffmpeg).mockReturnValue(mockChain as any);
+      vi.spyOn(fs, 'readdir').mockResolvedValue([] as any);
+      // naive count = floor(1/1) = 1, not > 50, so original interval used
+      await sut.extractVideoFrames('/video.mp4', '/tmp/frames', 1, 50);
+      expect(mockChain.outputOptions).toHaveBeenCalledWith(['-vf fps=1/1', '-frames:v 50', '-q:v 3']);
     });
   });
 });

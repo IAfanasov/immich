@@ -376,6 +376,10 @@ export class MediaRepository {
   /**
    * Samples frames from a video at a regular interval and writes them as JPEG files.
    *
+   * If the requested interval would yield more frames than maxFrames allows, the interval
+   * is widened to floor(duration / maxFrames) so that frames are spread evenly across the
+   * full video rather than being silently truncated at the start.
+   *
    * @param videoPath absolute path to the source video
    * @param outputDir directory to write the extracted JPEGs into; must exist before calling
    * @param frameInterval seconds between consecutive sampled frames (passed as `fps=1/N` to ffmpeg)
@@ -384,9 +388,15 @@ export class MediaRepository {
    */
   async extractVideoFrames(videoPath: string, outputDir: string, frameInterval: number, maxFrames: number): Promise<string[]> {
     const outputPattern = path.join(outputDir, 'frame_%04d.jpg');
+
+    const { format } = await this.probe(videoPath);
+    const duration = format.duration ?? 0;
+    const naiveCount = duration > 0 ? Math.floor(duration / frameInterval) : 0;
+    const effectiveInterval = naiveCount > maxFrames ? Math.max(1, Math.floor(duration / maxFrames)) : frameInterval;
+
     await new Promise<void>((resolve, reject) => {
       ffmpeg(videoPath)
-        .outputOptions([`-vf fps=1/${frameInterval}`, `-frames:v ${maxFrames}`, '-q:v 3'])
+        .outputOptions([`-vf fps=1/${effectiveInterval}`, `-frames:v ${maxFrames}`, '-q:v 3'])
         .output(outputPattern)
         .on('error', (error: Error, _stdout: string, stderr: string) => reject(new Error(stderr || error.message)))
         .on('end', () => resolve())
