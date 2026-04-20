@@ -23,6 +23,7 @@ import {
   PersonUpdateDto,
 } from 'src/dtos/person.dto';
 import {
+  AssetType,
   AssetVisibility,
   CacheControl,
   JobName,
@@ -377,6 +378,113 @@ export class PersonService extends BaseService {
     }
 
     await this.assetRepository.upsertJobStatus({ assetId: asset.id, facesRecognizedAt: new Date() });
+
+    if (asset.type === AssetType.Video) {
+      await this.jobRepository.queue({ name: JobName.AssetVideoDetectFaces, data: { id: asset.id } });
+    }
+
+    return JobStatus.Success;
+  }
+
+  @OnJob({ name: JobName.AssetVideoDetectFacesQueueAll, queue: QueueName.FaceDetection })
+  async handleQueueVideoDetectFaces({ force }: JobOf<JobName.AssetVideoDetectFacesQueueAll>): Promise<JobStatus> {
+    const { machineLearning } = await this.getConfig({ withCache: false });
+    if (!isFacialRecognitionEnabled(machineLearning)) {
+      return JobStatus.Skipped;
+    }
+
+    let jobs: JobItem[] = [];
+    const assets = this.assetJobRepository.streamForVideoDetectFacesJob(force);
+    for await (const asset of assets) {
+      jobs.push({ name: JobName.AssetVideoDetectFaces, data: { id: asset.id } });
+
+      if (jobs.length >= JOBS_ASSET_PAGINATION_SIZE) {
+        await this.jobRepository.queueAll(jobs);
+        jobs = [];
+      }
+    }
+
+    await this.jobRepository.queueAll(jobs);
+
+    return JobStatus.Success;
+  }
+
+  @OnJob({ name: JobName.AssetVideoDetectFaces, queue: QueueName.FaceDetection })
+  async handleVideoDetectFaces({ id }: JobOf<JobName.AssetVideoDetectFaces>): Promise<JobStatus> {
+    const { machineLearning } = await this.getConfig({ withCache: true });
+    if (!isFacialRecognitionEnabled(machineLearning)) {
+      return JobStatus.Skipped;
+    }
+
+    const asset = await this.assetJobRepository.getForVideoDetectFacesJob(id);
+    if (!asset) {
+      return JobStatus.Failed;
+    }
+
+    if (asset.visibility === AssetVisibility.Hidden) {
+      return JobStatus.Skipped;
+    }
+
+    const { videoFrameInterval, videoMaxFrames } = machineLearning.facialRecognition;
+    let tempDir: string | undefined;
+    try {
+      tempDir = await this.storageRepository.createTempDir('immich-video-faces-');
+      const framePaths = await this.mediaRepository.extractVideoFrames(
+        asset.originalPath,
+        tempDir,
+        videoFrameInterval,
+        videoMaxFrames,
+      );
+
+      if (framePaths.length === 0) {
+        this.logger.debug(`No frames extracted for video ${id}`);
+        await this.assetRepository.upsertJobStatus({ assetId: id, videoFacesRecognizedAt: new Date() });
+        return JobStatus.Success;
+      }
+
+      const facesToAdd: (Insertable<AssetFaceTable> & { id: string })[] = [];
+      const embeddings: FaceSearchTable[] = [];
+
+      for (let frameIndex = 0; frameIndex < framePaths.length; frameIndex++) {
+        const framePath = framePaths[frameIndex];
+        // Frame 0 is at 0 ms; each subsequent frame is videoFrameInterval seconds later.
+        const timestampMs = frameIndex * videoFrameInterval * 1000;
+
+        const { imageHeight, imageWidth, faces } = await this.machineLearningRepository.detectFaces(
+          framePath,
+          machineLearning.facialRecognition,
+        );
+
+        for (const { boundingBox, embedding } of faces) {
+          const faceId = this.cryptoRepository.randomUUID();
+          facesToAdd.push({
+            id: faceId,
+            assetId: asset.id,
+            imageHeight,
+            imageWidth,
+            boundingBoxX1: boundingBox.x1,
+            boundingBoxY1: boundingBox.y1,
+            boundingBoxX2: boundingBox.x2,
+            boundingBoxY2: boundingBox.y2,
+            timestampMs,
+          });
+          embeddings.push({ faceId, embedding });
+        }
+      }
+
+      if (facesToAdd.length > 0) {
+        await this.personRepository.refreshFaces(facesToAdd, [], embeddings);
+        this.logger.log(`Detected ${facesToAdd.length} faces across ${framePaths.length} frames in video ${id}`);
+        const jobs = facesToAdd.map((face) => ({ name: JobName.FacialRecognition, data: { id: face.id } }) as const);
+        await this.jobRepository.queueAll([{ name: JobName.FacialRecognitionQueueAll, data: { force: false } }, ...jobs]);
+      }
+    } finally {
+      if (tempDir) {
+        await this.storageRepository.unlinkDir(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    await this.assetRepository.upsertJobStatus({ assetId: id, videoFacesRecognizedAt: new Date() });
 
     return JobStatus.Success;
   }

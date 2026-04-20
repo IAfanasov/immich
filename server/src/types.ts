@@ -402,6 +402,8 @@ export type JobItem =
   // Facial Recognition
   | { name: JobName.AssetDetectFacesQueueAll; data: IBaseJob }
   | { name: JobName.AssetDetectFaces; data: IEntityJob }
+  | { name: JobName.AssetVideoDetectFacesQueueAll; data: IBaseJob }
+  | { name: JobName.AssetVideoDetectFaces; data: IEntityJob }
   | { name: JobName.FacialRecognitionQueueAll; data: INightlyJob }
   | { name: JobName.FacialRecognition; data: IDeferrableJob }
   | { name: JobName.PersonGenerateThumbnail; data: IEntityJob }
