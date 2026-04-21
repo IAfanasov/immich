@@ -1090,10 +1090,7 @@ describe(PersonService.name, () => {
         [],
         [{ faceId: face.id, embedding: '[1,2,3]' }],
       );
-      expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
-        { name: JobName.FacialRecognition, data: { id: face.id } },
-      ]);
+      expect(mocks.job.queue).toHaveBeenCalledWith({ name: JobName.AssetVideoClusterFaces, data: { id: asset.id } });
       expect(mocks.storage.unlinkDir).toHaveBeenCalledWith('/tmp/test-frames', { recursive: true, force: true });
       expect(mocks.asset.upsertJobStatus).toHaveBeenCalledWith({ assetId: asset.id, videoFacesRecognizedAt: expect.any(Date) });
     });
@@ -1138,6 +1135,104 @@ describe(PersonService.name, () => {
 
       await expect(sut.handleVideoDetectFaces({ id: asset.id })).rejects.toThrow('ML error');
       expect(mocks.storage.unlinkDir).toHaveBeenCalledWith('/tmp/test-frames', { recursive: true, force: true });
+    });
+  });
+
+  describe('handleVideoClusterFaces', () => {
+    const makeFace = (id: string, x1: number, y1: number, x2: number, y2: number, embedding: number[]) => ({
+      id,
+      imageWidth: 100,
+      imageHeight: 100,
+      boundingBoxX1: x1,
+      boundingBoxY1: y1,
+      boundingBoxX2: x2,
+      boundingBoxY2: y2,
+      timestampMs: 0,
+      embedding: JSON.stringify(embedding),
+    });
+
+    it('should skip if facial recognition is disabled', async () => {
+      mocks.systemMetadata.get.mockResolvedValue(systemConfigStub.machineLearningDisabled);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Skipped);
+      expect(mocks.person.getVideoFacesWithEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it('should succeed with no faces', async () => {
+      mocks.person.getVideoFacesWithEmbeddings.mockResolvedValue([]);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Success);
+      expect(mocks.person.refreshFaces).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
+    });
+
+    it('should queue recognition for a single face without clustering', async () => {
+      const face = makeFace('face-1', 10, 10, 50, 50, [1, 0, 0]);
+      mocks.person.getVideoFacesWithEmbeddings.mockResolvedValue([face]);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Success);
+      expect(mocks.person.refreshFaces).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).toHaveBeenCalledWith([
+        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
+        { name: JobName.FacialRecognition, data: { id: 'face-1' } },
+      ]);
+    });
+
+    it('should keep distinct faces and remove duplicates', async () => {
+      // face-1 and face-2 are very similar (same person), face-3 is different
+      const faceA1 = makeFace('face-1', 10, 10, 60, 60, [1, 0, 0]);   // area 0.25, person A
+      const faceA2 = makeFace('face-2', 10, 10, 40, 40, [0.99, 0.01, 0]); // area 0.09, person A (duplicate)
+      const faceB  = makeFace('face-3', 10, 10, 50, 50, [0, 1, 0]);   // area 0.16, person B
+
+      mocks.person.getVideoFacesWithEmbeddings.mockResolvedValue([faceA1, faceA2, faceB]);
+      mocks.person.refreshFaces.mockResolvedValue(undefined);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Success);
+
+      // face-2 is the duplicate — same cluster as face-1 (largest area representative)
+      expect(mocks.person.refreshFaces).toHaveBeenCalledWith([], ['face-2'], []);
+      expect(mocks.job.queueAll).toHaveBeenCalledWith([
+        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
+        { name: JobName.FacialRecognition, data: { id: 'face-1' } },
+        { name: JobName.FacialRecognition, data: { id: 'face-3' } },
+      ]);
+    });
+
+    it('should keep all faces when all are distinct', async () => {
+      const faceA = makeFace('face-1', 0, 0, 50, 50, [1, 0, 0]);
+      const faceB = makeFace('face-2', 0, 0, 50, 50, [0, 1, 0]);
+      const faceC = makeFace('face-3', 0, 0, 50, 50, [0, 0, 1]);
+
+      mocks.person.getVideoFacesWithEmbeddings.mockResolvedValue([faceA, faceB, faceC]);
+      mocks.person.refreshFaces.mockResolvedValue(undefined);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Success);
+
+      expect(mocks.person.refreshFaces).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).toHaveBeenCalledWith([
+        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
+        { name: JobName.FacialRecognition, data: { id: 'face-1' } },
+        { name: JobName.FacialRecognition, data: { id: 'face-2' } },
+        { name: JobName.FacialRecognition, data: { id: 'face-3' } },
+      ]);
+    });
+
+    it('should pick the largest face as cluster representative', async () => {
+      // face-2 has larger area but face-1 comes first in array — sorted by area descending
+      const faceSmall = makeFace('face-1', 10, 10, 20, 20, [1, 0, 0]); // area 0.01
+      const faceLarge = makeFace('face-2', 10, 10, 80, 80, [0.99, 0.01, 0]); // area 0.49, same cluster
+
+      mocks.person.getVideoFacesWithEmbeddings.mockResolvedValue([faceSmall, faceLarge]);
+      mocks.person.refreshFaces.mockResolvedValue(undefined);
+
+      await expect(sut.handleVideoClusterFaces({ id: 'asset-1' })).resolves.toBe(JobStatus.Success);
+
+      // face-2 (larger) is kept, face-1 (smaller) is removed
+      expect(mocks.person.refreshFaces).toHaveBeenCalledWith([], ['face-1'], []);
+      expect(mocks.job.queueAll).toHaveBeenCalledWith([
+        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
+        { name: JobName.FacialRecognition, data: { id: 'face-2' } },
+      ]);
     });
   });
 

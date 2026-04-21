@@ -475,8 +475,7 @@ export class PersonService extends BaseService {
       if (facesToAdd.length > 0) {
         await this.personRepository.refreshFaces(facesToAdd, [], embeddings);
         this.logger.log(`Detected ${facesToAdd.length} faces across ${framePaths.length} frames in video ${id}`);
-        const jobs = facesToAdd.map((face) => ({ name: JobName.FacialRecognition, data: { id: face.id } }) as const);
-        await this.jobRepository.queueAll([{ name: JobName.FacialRecognitionQueueAll, data: { force: false } }, ...jobs]);
+        await this.jobRepository.queue({ name: JobName.AssetVideoClusterFaces, data: { id } });
       }
     } finally {
       if (tempDir) {
@@ -487,6 +486,91 @@ export class PersonService extends BaseService {
     await this.assetRepository.upsertJobStatus({ assetId: id, videoFacesRecognizedAt: new Date() });
 
     return JobStatus.Success;
+  }
+
+  @OnJob({ name: JobName.AssetVideoClusterFaces, queue: QueueName.FaceDetection })
+  async handleVideoClusterFaces({ id }: JobOf<JobName.AssetVideoClusterFaces>): Promise<JobStatus> {
+    const { machineLearning } = await this.getConfig({ withCache: true });
+    if (!isFacialRecognitionEnabled(machineLearning)) {
+      return JobStatus.Skipped;
+    }
+
+    const faces = await this.personRepository.getVideoFacesWithEmbeddings(id);
+
+    if (faces.length === 0) {
+      return JobStatus.Success;
+    }
+
+    if (faces.length === 1) {
+      await this.jobRepository.queueAll([
+        { name: JobName.FacialRecognitionQueueAll, data: { force: false } },
+        { name: JobName.FacialRecognition, data: { id: faces[0].id } },
+      ]);
+      return JobStatus.Success;
+    }
+
+    const { maxDistance } = machineLearning.facialRecognition;
+
+    // Rank by normalised bounding-box area descending. Larger faces are generally
+    // more frontal and yield better embeddings, so they become cluster representatives.
+    const ranked = faces
+      .map((face) => ({
+        ...face,
+        area:
+          ((face.boundingBoxX2 - face.boundingBoxX1) * (face.boundingBoxY2 - face.boundingBoxY1)) /
+          (face.imageWidth * face.imageHeight || 1),
+        vec: JSON.parse(face.embedding) as number[],
+      }))
+      .sort((a, b) => b.area - a.area);
+
+    const processed = new Set<string>();
+    const faceIdsToRemove: string[] = [];
+    const survivors: string[] = [];
+
+    // Greedy clustering: each unvisited face becomes a cluster representative;
+    // all subsequent faces within maxDistance of it are marked as duplicates.
+    for (const face of ranked) {
+      if (processed.has(face.id)) {
+        continue;
+      }
+      processed.add(face.id);
+      survivors.push(face.id);
+
+      for (const other of ranked) {
+        if (processed.has(other.id)) {
+          continue;
+        }
+        if (this.cosineDistance(face.vec, other.vec) <= maxDistance) {
+          processed.add(other.id);
+          faceIdsToRemove.push(other.id);
+        }
+      }
+    }
+
+    if (faceIdsToRemove.length > 0) {
+      await this.personRepository.refreshFaces([], faceIdsToRemove, []);
+      this.logger.log(`Removed ${faceIdsToRemove.length} duplicate video faces in asset ${id}, kept ${survivors.length}`);
+    }
+
+    const jobs = survivors.map((faceId) => ({ name: JobName.FacialRecognition, data: { id: faceId } }) as const);
+    await this.jobRepository.queueAll([{ name: JobName.FacialRecognitionQueueAll, data: { force: false } }, ...jobs]);
+
+    return JobStatus.Success;
+  }
+
+  // Returns cosine distance (1 − cosine similarity). 0 = identical direction, 1 = orthogonal.
+  // Zero-magnitude vectors are treated as maximally distant to avoid division by zero.
+  private cosineDistance(a: number[], b: number[]): number {
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    return denom === 0 ? 1 : 1 - dot / denom;
   }
 
   private iou(
