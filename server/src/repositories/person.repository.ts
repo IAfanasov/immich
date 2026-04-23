@@ -135,6 +135,22 @@ export class PersonRepository {
       .execute();
   }
 
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getVideoOccurrences(personId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .select([
+        'asset_face.assetId',
+        (eb) => eb.fn.min('asset_face.timestampMs').as('firstTimestampMs'),
+      ])
+      .where('asset_face.personId', '=', personId)
+      .where('asset_face.timestampMs', 'is not', null)
+      .where('asset_face.deletedAt', 'is', null)
+      .groupBy('asset_face.assetId')
+      .orderBy('firstTimestampMs', 'asc')
+      .execute();
+  }
+
   getAllFaces(options: GetAllFacesOptions = {}) {
     return this.db
       .selectFrom('asset_face')

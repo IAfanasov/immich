@@ -21,6 +21,7 @@ import {
   PersonSearchDto,
   PersonStatisticsResponseDto,
   PersonUpdateDto,
+  PersonVideoOccurrenceResponseDto,
 } from 'src/dtos/person.dto';
 import {
   AssetType,
@@ -159,6 +160,12 @@ export class PersonService extends BaseService {
   async getStatistics(auth: AuthDto, id: string): Promise<PersonStatisticsResponseDto> {
     await this.requireAccess({ auth, permission: Permission.PersonRead, ids: [id] });
     return this.personRepository.getStatistics(id);
+  }
+
+  async getVideoOccurrences(auth: AuthDto, id: string): Promise<PersonVideoOccurrenceResponseDto[]> {
+    await this.requireAccess({ auth, permission: Permission.PersonRead, ids: [id] });
+    const rows = await this.personRepository.getVideoOccurrences(id);
+    return rows.map((row) => ({ assetId: row.assetId, firstTimestampMs: Number(row.firstTimestampMs) }));
   }
 
   async getThumbnail(auth: AuthDto, id: string): Promise<ImmichFileResponse> {

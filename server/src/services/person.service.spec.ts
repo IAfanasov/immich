@@ -1236,6 +1236,34 @@ describe(PersonService.name, () => {
     });
   });
 
+  describe('getVideoOccurrences', () => {
+    it('should require person read access', async () => {
+      await expect(sut.getVideoOccurrences(authStub.admin, 'person-1')).rejects.toBeInstanceOf(Error);
+      expect(mocks.access.person.checkOwnerAccess).toHaveBeenCalledWith(authStub.admin.user.id, new Set(['person-1']));
+    });
+
+    it('should return video occurrences for a person', async () => {
+      mocks.access.person.checkOwnerAccess.mockResolvedValue(new Set(['person-1']));
+      mocks.person.getVideoOccurrences.mockResolvedValue([
+        { assetId: 'asset-1', firstTimestampMs: 1000 },
+        { assetId: 'asset-2', firstTimestampMs: 5000 },
+      ]);
+
+      await expect(sut.getVideoOccurrences(authStub.admin, 'person-1')).resolves.toEqual([
+        { assetId: 'asset-1', firstTimestampMs: 1000 },
+        { assetId: 'asset-2', firstTimestampMs: 5000 },
+      ]);
+      expect(mocks.person.getVideoOccurrences).toHaveBeenCalledWith('person-1');
+    });
+
+    it('should return empty list when person has no video faces', async () => {
+      mocks.access.person.checkOwnerAccess.mockResolvedValue(new Set(['person-1']));
+      mocks.person.getVideoOccurrences.mockResolvedValue([]);
+
+      await expect(sut.getVideoOccurrences(authStub.admin, 'person-1')).resolves.toEqual([]);
+    });
+  });
+
   describe('handleRecognizeFaces', () => {
     it('should fail if face does not exist', async () => {
       expect(await sut.handleRecognizeFaces({ id: 'unknown-face' })).toBe(JobStatus.Failed);

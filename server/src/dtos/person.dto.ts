@@ -104,6 +104,7 @@ export const AssetFaceResponseSchema = z
     boundingBoxY2: z.int().describe('Bounding box Y2 coordinate'),
     sourceType: SourceTypeSchema.optional(),
     person: PersonResponseSchema.nullable(),
+    timestampMs: z.int().min(0).optional().describe('Milliseconds from video start; absent for photos'),
   })
   .describe('Asset face with person')
   .meta({ id: 'AssetFaceResponseDto' });
@@ -204,6 +205,7 @@ function mapFacesWithoutPerson(
       assetDimensions ?? { width: face.imageWidth, height: face.imageHeight },
     ),
     sourceType: face.sourceType,
+    timestampMs: face.timestampMs ?? undefined,
   };
 }
 
@@ -218,3 +220,12 @@ export function mapFaces(
     person: face.person?.ownerId === auth.user.id ? mapPerson(face.person) : null,
   };
 }
+
+const PersonVideoOccurrenceResponseSchema = z
+  .object({
+    assetId: z.uuidv4().describe('Asset ID of the video'),
+    firstTimestampMs: z.int().min(0).describe('Earliest timestamp (ms from video start) where this person appears'),
+  })
+  .meta({ id: 'PersonVideoOccurrenceResponseDto' });
+
+export class PersonVideoOccurrenceResponseDto extends createZodDto(PersonVideoOccurrenceResponseSchema) {}
