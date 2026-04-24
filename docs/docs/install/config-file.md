@@ -137,7 +137,9 @@ The default configuration looks like this:
       "maxDistance": 0.5,
       "minFaces": 3,
       "minScore": 0.7,
-      "modelName": "buffalo_l"
+      "modelName": "buffalo_l",
+      "videoFrameInterval": 2,
+      "videoMaxFrames": 50
     },
     "ocr": {
       "enabled": true,
