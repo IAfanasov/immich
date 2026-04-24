@@ -7373,10 +7373,11 @@ export enum ManualJobName {
     IntegrityChecksumMismatch = "integrity-checksum-mismatch",
     IntegrityMissingFilesRefresh = "integrity-missing-files-refresh",
     IntegrityUntrackedFilesRefresh = "integrity-untracked-files-refresh",
-    IntegrityChecksumMismatchRefresh = "integrity-checksum-mismatch-refresh",
     IntegrityMissingFilesDeleteAll = "integrity-missing-files-delete-all",
     IntegrityUntrackedFilesDeleteAll = "integrity-untracked-files-delete-all",
-    IntegrityChecksumMismatchDeleteAll = "integrity-checksum-mismatch-delete-all"
+    IntegrityChecksumMismatchDeleteAll = "integrity-checksum-mismatch-delete-all",
+    IntegrityChecksumMismatchRefresh = "integrity-checksum-mismatch-refresh",
+    VideoFaceDetection = "video-face-detection"
 }
 export enum QueueName {
     ThumbnailGeneration = "thumbnailGeneration",
