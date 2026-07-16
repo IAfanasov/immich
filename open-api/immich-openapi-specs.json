@@ -17333,6 +17333,12 @@
           },
           "sourceType": {
             "$ref": "#/components/schemas/SourceType"
+          },
+          "timestampMs": {
+            "description": "Milliseconds from video start; absent for photos",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -19096,6 +19102,22 @@
           "modelName": {
             "description": "Name of the model to use",
             "type": "string"
+          },
+          "videoEnabled": {
+            "description": "Whether to detect faces in sampled video frames",
+            "type": "boolean"
+          },
+          "videoFrameInterval": {
+            "description": "Seconds between sampled frames when detecting faces in videos",
+            "maximum": 300,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "videoMaxFrames": {
+            "description": "Maximum number of frames to sample per video for face detection",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "required": [
@@ -19103,7 +19125,10 @@
           "maxDistance",
           "minFaces",
           "minScore",
-          "modelName"
+          "modelName",
+          "videoEnabled",
+          "videoFrameInterval",
+          "videoMaxFrames"
         ],
         "type": "object"
       },
@@ -19245,6 +19270,9 @@
           "AssetDeleteCheck",
           "AssetDetectFacesQueueAll",
           "AssetDetectFaces",
+          "AssetVideoDetectFacesQueueAll",
+          "AssetVideoDetectFaces",
+          "AssetVideoClusterFaces",
           "AssetDetectDuplicatesQueueAll",
           "AssetDetectDuplicates",
           "AssetEditThumbnailGeneration",
@@ -19695,7 +19723,8 @@
           "integrity-checksum-mismatch-refresh",
           "integrity-missing-files-delete-all",
           "integrity-untracked-files-delete-all",
-          "integrity-checksum-mismatch-delete-all"
+          "integrity-checksum-mismatch-delete-all",
+          "video-face-detection"
         ],
         "type": "string"
       },
@@ -21565,6 +21594,7 @@
           "metadataExtraction",
           "videoConversion",
           "faceDetection",
+          "videoFaceDetection",
           "facialRecognition",
           "smartSearch",
           "duplicateDetection",
@@ -21749,6 +21779,9 @@
           "videoConversion": {
             "$ref": "#/components/schemas/QueueResponseLegacyDto"
           },
+          "videoFaceDetection": {
+            "$ref": "#/components/schemas/QueueResponseLegacyDto"
+          },
           "workflow": {
             "$ref": "#/components/schemas/QueueResponseLegacyDto"
           }
@@ -21772,6 +21805,7 @@
           "storageTemplateMigration",
           "thumbnailGeneration",
           "videoConversion",
+          "videoFaceDetection",
           "workflow"
         ],
         "type": "object"
@@ -22578,6 +22612,10 @@
           "trash": {
             "description": "Whether trash feature is enabled",
             "type": "boolean"
+          },
+          "videoFaceDetection": {
+            "description": "Whether video face detection is enabled",
+            "type": "boolean"
           }
         },
         "required": [
@@ -22596,7 +22634,8 @@
           "search",
           "sidecar",
           "smartSearch",
-          "trash"
+          "trash",
+          "videoFaceDetection"
         ],
         "type": "object"
       },
@@ -26016,6 +26055,9 @@
           "videoConversion": {
             "$ref": "#/components/schemas/JobSettingsDto"
           },
+          "videoFaceDetection": {
+            "$ref": "#/components/schemas/JobSettingsDto"
+          },
           "workflow": {
             "$ref": "#/components/schemas/JobSettingsDto"
           }
@@ -26035,6 +26077,7 @@
           "smartSearch",
           "thumbnailGeneration",
           "videoConversion",
+          "videoFaceDetection",
           "workflow"
         ],
         "type": "object"
