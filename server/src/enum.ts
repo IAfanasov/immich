@@ -795,6 +795,7 @@ export enum QueueName {
   MetadataExtraction = 'metadataExtraction',
   VideoConversion = 'videoConversion',
   FaceDetection = 'faceDetection',
+  VideoFaceDetection = 'videoFaceDetection',
   FacialRecognition = 'facialRecognition',
   SmartSearch = 'smartSearch',
   DuplicateDetection = 'duplicateDetection',

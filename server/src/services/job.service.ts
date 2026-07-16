@@ -71,7 +71,7 @@ const asJobItem = (dto: JobCreateDto): JobItem => {
     }
 
     case ManualJobName.VideoFaceDetection: {
-      return { name: JobName.AssetVideoDetectFacesQueueAll, data: {} };
+      return { name: JobName.AssetVideoDetectFacesQueueAll, data: { force: true } };
     }
 
     default: {

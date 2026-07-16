@@ -22,7 +22,10 @@ describe(JobService.name, () => {
   describe('create', () => {
     it('should queue AssetVideoDetectFacesQueueAll for VideoFaceDetection manual job', async () => {
       await sut.create({ name: ManualJobName.VideoFaceDetection });
-      expect(mocks.job.queue).toHaveBeenCalledWith({ name: JobName.AssetVideoDetectFacesQueueAll, data: {} });
+      expect(mocks.job.queue).toHaveBeenCalledWith({
+        name: JobName.AssetVideoDetectFacesQueueAll,
+        data: { force: true },
+      });
     });
   });
 

@@ -254,7 +254,7 @@ export class AssetJobRepository {
     return this.assetsWithPreviews()
       .select(['asset.id'])
       .where('asset.type', '=', sql.lit(AssetType.Video))
-      .$if(force === false, (qb) => qb.where('job_status.videoFacesRecognizedAt', 'is', null))
+      .$if(!force, (qb) => qb.where('job_status.videoFacesRecognizedAt', 'is', null))
       .orderBy('asset.fileCreatedAt', 'desc')
       .stream();
   }

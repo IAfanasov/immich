@@ -220,12 +220,3 @@ export function mapFaces(
     person: face.person?.ownerId === auth.user.id ? mapPerson(face.person) : null,
   };
 }
-
-const PersonVideoOccurrenceResponseSchema = z
-  .object({
-    assetId: z.uuidv4().describe('Asset ID of the video'),
-    firstTimestampMs: z.int().min(0).describe('Earliest timestamp (ms from video start) where this person appears'),
-  })
-  .meta({ id: 'PersonVideoOccurrenceResponseDto' });
-
-export class PersonVideoOccurrenceResponseDto extends createZodDto(PersonVideoOccurrenceResponseSchema) {}
