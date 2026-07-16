@@ -34,11 +34,11 @@ It can be found from the app bar when you access the detail view of a person.
 
 Face detection sends the generated preview image to the machine learning service for processing. The service checks if it has the relevant model downloaded and downloads it if not. The image is decoded, pre-processed and passed to the face detection model (with hardware acceleration if configured). The bounding boxes and scores outputted from this model are used to crop and preprocess the image once again to be passed to a facial recognition model (also accelerated if configured). The embeddings from the recognition model, together with the bounding boxes and scores from the face detection model, are then sent back to the server to be added to the database. The embeddings in particular are indexed so they can be searched quickly during facial recognition clustering.
 
-### Video face detection
+### Face detection in videos
 
-For video assets, Immich goes a step further: after first-frame face detection it samples frames throughout the full video at a configurable interval (default: one frame every 2 seconds, capped at 50 frames per video). Each detected face is stored with a `timestampMs` value recording where in the video it appeared.
+For video assets, Immich goes a step further: after the preview image is processed, it seeks through the video and samples individual frames at a configurable interval (default: one frame every 2 seconds, capped at 50 frames per video — when the cap is hit, samples are spread evenly across the full video). Frames are downscaled to preview size before detection. Each detected face is stored with a `timestampMs` value recording where in the video it appeared. Video face detection is opt-in: enable it with the **Video face detection** setting.
 
-Because many of these frames will show the same person from slightly different angles, a deduplication step runs before facial recognition. Faces from the same video are clustered by embedding similarity (cosine distance); only the highest-quality representative from each cluster — chosen by largest normalised bounding-box area, a reliable proxy for face frontality — is kept. The duplicates are discarded, and only the survivors are forwarded to the facial recognition pipeline.
+Because many of these frames will show the same person from slightly different angles, a deduplication step runs before facial recognition. Faces from the same video — including the face found on the preview image — are clustered by embedding similarity (cosine distance); only the highest-quality representative from each cluster — chosen by largest normalised bounding-box area, a reliable proxy for face frontality — is kept, with the preview-derived face always preserved. The duplicates are discarded, and only the survivors are forwarded to the facial recognition pipeline.
 
 This means that a person who appears throughout a long video contributes exactly one face record to the recognition stage, rather than dozens of near-identical records that could skew clustering results.
 
@@ -109,4 +109,8 @@ After changing this setting you can re-run **Video Face Detection** from the Job
 
 ### Video face detection max frames
 
-The maximum number of frames sampled per video, regardless of video length. The default is 50. This cap prevents very long videos from generating an excessive number of face records. The allowed range is 1–500 frames.
+The maximum number of frames sampled per video, regardless of video length. The default is 50. This cap prevents very long videos from generating an excessive number of face records; when it applies, samples are spread evenly across the video. The allowed range is 1–500 frames.
+
+### Video face detection
+
+Whether faces are detected in sampled video frames at all. Disabled by default so that upgrading does not start reprocessing existing video libraries; when enabled, new videos are processed automatically and existing videos are picked up by the nightly maintenance sweep (or a manual run from the Jobs page).
